@@ -19,6 +19,6 @@ jobs:
             const res = await github.rest.checks.listSuitesForRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              ref: pull_request.head.sha,
+              ref: github.event.pull_request.head.sha,
             })
             console.log(res)
