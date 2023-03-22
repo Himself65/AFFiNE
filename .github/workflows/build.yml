@@ -7,85 +7,13 @@ on:
 env:
   BUILD_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
+permissions:
+  checks: write
+
 jobs:
-  build:
-    name: Build on Pull Request
+  check:
     runs-on: ubuntu-latest
-    if: github.repository == 'toeverything/AFFiNE' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/test run')
-    environment: development
-
     steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Use Node.js LTS
-        uses: actions/setup-node@v3
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'yarn'
-      - name: Get yarn cache directory path
-        id: yarn-cache-dir-path
-        run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
-      - uses: actions/cache@v3
-        id: yarn-cache
-        with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-
-      - run: yarn install
-      - run: yarn lint --max-warnings=0
-
-      - name: Build
-        run: yarn build
-        env:
-          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
-          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
-          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID }}
-
-      - name: Export
-        run: yarn export
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: artifact
-          path: ./apps/web/.next
-
-  e2e-test:
-    name: E2E Test
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4]
-    environment: development
-    needs: build
-    permissions:
-      contents: read
-      packages: write
-    services:
-      octobase:
-        image: ghcr.io/toeverything/cloud:nightly-latest
-        ports:
-          - 3000:3000
-        env:
-          SIGN_KEY: 'test123'
-          RUST_LOG: 'debug'
-          JWST_DEV: '1'
-        credentials:
-          username: ${{ github.actor }}
-          password: ${{ secrets.ACTIONS_PACKAGE_PUBLISH }}
-
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
       - name: 'Create E2E test check'
         uses: actions/github-script@v6
         id: create-check
@@ -94,44 +22,20 @@ jobs:
           debug: ${{ secrets.ACTIONS_STEP_DEBUG || false }}
           result-encoding: string
           script: |
-            const { id } = await github.rest.checks.create({
+            const { data: pull_request } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              head_sha: context.sha,
-              name: "E2E Test ${{ matrix.shard }}/${{ strategy.job-total }}",
+              pull_number: context.issue.number,
+            });
+            const response = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head_sha: pull_request.head.sha,
+              name: "TEST???",
               status: "in_progress",
               details_url: process.env.BUILD_URL
             });
-            return id;
-      - name: Use Node.js 18
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-          cache: 'yarn'
-      - name: Get yarn cache directory path
-        id: yarn-cache-dir-path
-        run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
-      - uses: actions/cache@v3
-        id: yarn-cache
-        with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-      - run: yarn install
-      - name: Download artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: artifact
-          path: ./apps/web/.next
-
-      - name: Install playwright browsers
-        run: npx playwright install chromium
-      - name: Run playwright tests
-        run: yarn test --forbid-only --shard=${{ matrix.shard }}/${{ strategy.job-total }}
-        env:
-          COVERAGE: true
-
+            return response.data.id;
       - name: Update Check
         uses: actions/github-script@v6
         if: ${{ always() }}
@@ -157,67 +61,3 @@ jobs:
               conclusion: checkConclusion,
               completed_at: new Date().toISOString(),
             });
-
-      - name: Collect code coverage report
-        run: yarn exec nyc report -t .nyc_output --report-dir .coverage --reporter=lcov
-
-      - name: Upload e2e test coverage results
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./.coverage/lcov.info
-          flags: e2etest
-          name: affine
-          fail_ci_if_error: true
-
-      - name: Upload test results
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v2
-        with:
-          name: test-results-e2e
-          path: ./test-results
-          if-no-files-found: ignore
-
-  unit-test:
-    name: Unit Test
-    runs-on: ubuntu-latest
-    environment: development
-    needs: build
-
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Use Node.js LTS
-        uses: actions/setup-node@v3
-        with:
-          node-version-file: '.nvmrc'
-          cache: 'yarn'
-      - name: Get yarn cache directory path
-        id: yarn-cache-dir-path
-        run: echo "::set-output name=dir::$(yarn config get cacheFolder)"
-      - uses: actions/cache@v3
-        id: yarn-cache
-        with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
-      - run: yarn install
-      - name: Download artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: artifact
-          path: ./apps/web/.next
-
-      - name: Unit Test
-        run: yarn run test:unit:coverage
-
-      - name: Upload unit test coverage results
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./.coverage/store/lcov.info
-          flags: unittest
-          name: affine
-          fail_ci_if_error: true

@@ -1,0 +1,24 @@
+name: Merge Check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  check_commit_run:
+    name: Check commit run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          script: |
+            const assert = (condition, message) => {
+              if (!condition) {
+                throw new Error(message)
+              }
+            }
+            const res = await github.rest.checks.listSuitesForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.payload.pull_request.head_ref,
+            })
+            console.log(res)
