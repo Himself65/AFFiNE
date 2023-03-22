@@ -1,7 +1,6 @@
 name: Merge Check
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
   check_commit_run:
@@ -20,6 +19,6 @@ jobs:
             const res = await github.rest.checks.listSuitesForRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              ref: github.event.pull_request.head.sha,
+              ref: context.payload.pull_request.head.sha,
             })
             console.log(res)
